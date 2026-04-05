@@ -2,7 +2,7 @@
 
 ## Overview
 
-Privacy-first AI phone companion using E2B/E4B with optional home server delegation. MVP focuses on audio pipeline and local inference.
+Privacy-first AI phone companion using Gemma 4 E2B/E4B with optional home server delegation. MVP focuses on audio pipeline and local inference.
 
 ---
 
@@ -36,40 +36,92 @@ app/
 │   │   ├── storage/
 │   │   │   ├── AppDatabase.kt
 │   │   │   └── SessionDao.kt
+│   │   ├── di/                   # Hilt modules
+│   │   │   └── AppModule.kt
 │   │   └── settings/
-│   │       └── Preferences.kt
+│   │       ├── Preferences.kt      # DataStore-based settings
+│   │       └── UserSettings.kt     # Typed preferences wrapper
 │   └── assets/
 │       └── models/          # Bundled .task files (future)
 └── build.gradle.kts
 ```
 
-### 1.2 Dependencies
+### 1.2 Hilt Setup
+
 ```kotlin
-// LiteRT-LM (replaces deprecated MediaPipe tasks-genai)
-implementation("com.google.mediapipe:tasks-text:latest.version")
-// LiteRT-LM Android artifact — see https://ai.google.dev/edge/litert_lm
-// Available on MavenCentral as litert-litertl or bundled with tasks-genai
-// Gemma 3n E2B/E4B models available in .litertlm format on HuggingFace
+@Module
+@InstallIn(SingletonComponent::class)
+object AppModule {
+
+    @Provides
+    @Singleton
+    fun provideDataStore(context: Context): DataStore<Preferences> {
+        return context.dataStore
+    }
+
+    @Provides
+    @Singleton
+    @Named("searxng")
+    fun provideSearxngUrl(settings: UserSettings): String {
+        return "http://sleepy-think:7777"
+    }
+
+    @Provides
+    @Singleton
+    fun provideKtorClient(): HttpClient {
+        return HttpClient(OkHttp) {
+            install(ContentNegotiation) {
+                json(Json { ignoreUnknownKeys = true })
+            }
+            install(HttpTimeout) {
+                requestTimeoutMillis = 60_000
+            }
+        }
+    }
+}
+```
+
+### 1.3 Dependencies
+```kotlin
+// MediaPipe LLM Inference for Gemma 4 E2B/E4B
+// Models available in .task format on HuggingFace/Google AI Edge
 
 // CameraX
 implementation("androidx.camera:camera-core:latest")
 implementation("androidx.camera:camera-camera2:latest")
 implementation("androidx.camera:camera-lifecycle:latest")
 
-// Room
+// Room (for session history)
 implementation("androidx.room:room-runtime:latest")
 implementation("androidx.room:room-ktx:latest")
 
-// Networking
-implementation("com.squareup.okhttp3:okhttp:latest")
+// Ktor Client (server API)
+implementation("io.ktor:ktor-client-core:latest")
+implementation("io.ktor:ktor-client-okhttp:latest")
+implementation("io.ktor:ktor-client-content-negotiation:latest")
+implementation("io.ktor:ktor-serialization-kotlinx-json:latest")
+
+// Hilt (DI)
+implementation("com.google.dagger:hilt-android:latest")
+kapt("com.google.dagger:hilt-android-compiler:latest")
+
+// DataStore (preferences)
+implementation("androidx.datastore:datastore-preferences:latest")
+
+// Kotlinx Serialization
+implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:latest")
 
 // Compose
 implementation(platform("androidx.compose:compose-bom:latest"))
 implementation("androidx.compose.ui:ui")
 implementation("androidx.compose.material3:material3")
+
+// Silero VAD (via TensorFlow Lite runtime)
+implementation("org.tensorflow:tensorflow-lite-runtime:latest")
+// Silero .tflite model file included in assets
 ```
 
-> **Note**: MediaPipe LLM Inference API is deprecated. Use **LiteRT-LM** as the production runtime. Gemma 3n E2B/E4B models in `.litertlm` format are available on HuggingFace.
+> **Model Format**: Gemma 4 E2B/E4B models in `.task` format (MediaPipe bundle) from HuggingFace or Google AI Edge.
 
 ---
 
@@ -81,16 +133,17 @@ implementation("androidx.compose.material3:material3")
 - Stream to VAD for activity detection
 
 ### 2.2 Voice Activity Detection
+- **Silero VAD** (chosen over MediaPipe Speech for better accuracy)
 - Detect speech vs silence
 - Flow: **silence → speech detected → start capture → 2+ sec silence → stop & process**
-- Option: MediaPipe speech recognition or simple amplitude thresholding
+- Silero model: `.tflite` file in assets, loaded via TensorFlow Lite runtime
 
 ### 2.3 TTS
 - Android native `TextToSpeech`
 - Fallback: MediaPipe TTS if needed
 
 ### 2.4 Audio → Model Input (Batch)
-- **Batch audio only** — LiteRT-LM supports audio clips up to 30 seconds
+- **Batch audio only** — MediaPipe LLM Inference supports audio clips up to 30 seconds
 - Streaming audio is on the roadmap, not available yet
 - For PTT: silence detected → clip ends → send batch to model. This fits perfectly.
 - Pass audio bytes with a simple transcription prompt to verify the pipeline
@@ -100,15 +153,18 @@ Record 3-5 seconds of speech via `AudioRecord`, pass as batch to model with "tra
 
 ---
 
-## Phase 3: Inference Engine (LiteRT-LM)
+## Phase 3: Inference Engine (MediaPipe LLM Inference)
 
-> **Runtime**: LiteRT-LM (successor to deprecated MediaPipe LLM Inference API)
-> **Model format**: `.litertlm` (Gemma 3n E2B/E4B on HuggingFace)
+> **Runtime**: MediaPipe LLM Inference
+> **Model format**: `.task` bundle (Gemma 4 E2B/E4B on HuggingFace/Google AI Edge)
 > **Function calling**: Built-in support for agentic tool workflows
 
-### 3.1 LiteRT-LM Integration
+### 3.1 LlmEngine Integration (MediaPipe)
 ```kotlin
-class LlmEngine(private val context: Context) {
+@Singleton
+class LlmEngine @Inject constructor(
+    private val context: Context
+) {
     private var model: LlmInference? = null
 
     suspend fun loadModel(modelPath: String) {
@@ -199,16 +255,22 @@ When delegating, provide clear context for the desktop AI.
 
 The `ConversationContext` is the ephemeral state manager for the agentic loop. It lives in-memory per session and handles the orchestration between LLM, tools, and context window.
 
-### 3.5.1 Core Data Structures
+### 3.5.1 Core Data Structures (Hilt-injected)
 
 ```kotlin
+@Serializable
 sealed class Message {
+    @Serializable
     data class User(val content: String) : Message()
+    @Serializable
     data class Assistant(val content: String, val toolCalls: List<ToolCall>? = null) : Message()
+    @Serializable
     data class ToolResult(val toolCallId: String, val toolName: String, val result: String) : Message()
+    @Serializable
     data class System(val content: String) : Message()  // injected at start
 }
 
+@Serializable
 data class ConversationContext(
     val sessionId: String,
     val systemPrompt: String,
@@ -217,6 +279,7 @@ data class ConversationContext(
     val reservedForResponse: Int = 2048  // keep room for model output
 )
 
+@Serializable
 data class ToolCall(
     val id: String,
     val name: String,
@@ -227,7 +290,10 @@ data class ToolCall(
 ### 3.5.2 Token Budget Management
 
 ```kotlin
-class ConversationContext(private val maxTokens: Int) {
+@Singleton
+class ConversationContext @Inject constructor(
+    private val maxTokens: Int = 16384
+) {
     private val messages = mutableListOf<Message>()
     private val systemPrompt = """..."""
 
@@ -259,10 +325,11 @@ class ConversationContext(private val maxTokens: Int) {
 }
 ```
 
-### 3.5.3 Agentic Loop Orchestration
+### 3.5.3 Agentic Loop Orchestration (with Hilt DI)
 
 ```kotlin
-class Agent(
+@Singleton
+class Agent @Inject constructor(
     private val llm: LlmEngine,
     private val tools: List<Tool>,
     private val context: ConversationContext
@@ -300,7 +367,7 @@ class Agent(
             }
 
             // Execute tools in parallel
-            val results = toolCalls.map { toolCall ->
+            val results = toolCall.parMap { toolCall ->
                 val result = executeTool(toolCall)
                 Message.ToolResult(
                     toolCallId = toolCall.id,
@@ -405,44 +472,71 @@ data class ToolCallDto(
 
 ---
 
-## Phase 4: Tools
+## Phase 4: Tools (Ktor Client)
 
-### 4.1 Web Search
-- Endpoint: `http://sleepy-think:7777/search?q={query}&format=json`
-- Parameters: `query`, `maxResults` (default 8)
-- Response: JSON with `results[]` containing `title`, `url`, `content`
+### 4.1 Web Search (Ktor)
+```kotlin
+class WebSearchTool @Inject constructor(
+    private val client: HttpClient,
+    @Named("searxng") private val baseUrl: String
+) {
+    suspend fun execute(query: String, maxResults: Int = 8): String {
+        return client.get("$baseUrl/search") {
+            parameter("q", query)
+            parameter("format", "json")
+        }.bodyAsText()
+    }
+}
+```
 
-### 4.2 Web Fetch
-- Endpoint: `http://sleepy-think:7777/search?q={url}` (or direct fetch)
-- Strip HTML, return plain text
-- Truncate at `maxLength` (default 20k)
+### 4.2 Web Fetch (Ktor)
+```kotlin
+class WebFetchTool @Inject constructor(
+    private val client: HttpClient
+) {
+    suspend fun execute(url: String, maxLength: Int = 20000): String {
+        return client.get(url).bodyAsText().take(maxLength)
+    }
+}
+```
 
-### 4.3 Server Delegation
-- Endpoint: Configured in settings (e.g., `http://home-server:1234`)
-- POST `/v1/completions` or `/v1/chat/completions`
-- System override: "You are helping via phone. Keep responses concise."
-- Timeout: 60s, show "thinking..." state
+### 4.3 Server Delegation (Ktor)
+```kotlin
+class ServerTool @Inject constructor(
+    private val client: HttpClient,
+    private val settings: UserSettings  // DataStore
+) {
+    suspend fun execute(prompt: String): String {
+        val serverUrl = settings.serverUrl.first()
+        return client.post("$serverUrl/v1/chat/completions") {
+            contentType(ContentType.Application.Json)
+            setBody(buildChatRequest(prompt))
+        }.body<ServerResponse>().choices.first().message.content
+    }
+}
+```
 
-### 4.4 Health Check
+### 4.4 Health Check (Ktor)
 ```kotlin
 suspend fun checkServerHealth(url: String): Boolean {
     return try {
         val response = client.get("$url/v1/models")
-        response.isSuccessful
+        response.status.isSuccess()
     } catch (e: Exception) {
         false
     }
 }
 ```
 
-### 4.5 Model Discovery
+### 4.5 Model Discovery (Ktor)
 ```kotlin
-data class ServerModel(val id: String, val object: String = "model")
+@Serializable
+data class ServerModel(val id: String)
 
 suspend fun listServerModels(url: String): List<ServerModel> {
-    val response = client.get("$url/v1/models")
-    val body = response.body?.string() ?: return emptyList()
-    return parseJson(body).get("data").map { ... }
+    return client.get("$url/v1/models")
+        .body<ModelsResponse>()
+        .data
 }
 ```
 
@@ -587,24 +681,31 @@ data class Message(
 
 ## Key Decisions (Confirmed)
 
-- [x] **Runtime**: LiteRT-LM (successor to deprecated MediaPipe LLM Inference API)
-- [x] **Model format**: `.litertlm` from HuggingFace (Gemma 3n E2B/E4B)
+- [x] **Runtime**: MediaPipe LLM Inference (Gemma 4 E2B/E4B)
+- [x] **Model format**: `.task` bundle from HuggingFace/Google AI Edge
 - [x] **Audio input**: Batch only, up to 30 seconds per clip (streaming on roadmap)
 - [x] **Image input**: Up to 10 per session via MPImage + EnableVisionModality
 - [x] **ASR approach**: Direct audio to model (batch) — no separate transcription step
-- [x] **VAD library**: MediaPipe Speech or Silero VAD
+- [x] **VAD library**: **Silero VAD** (`.tflite` model via TensorFlow Lite runtime)
 - [x] **TTS**: Native Android `TextToSpeech`
 - [x] **Model delivery**: Option to download from HuggingFace OR point to local file
 - [x] **Context management**: `ConversationContext` with token budgeting and auto-pruning
 - [x] **Tool format**: `<tool_result>` XML-style tags for injecting results
 - [x] **Max iterations**: 5 tool calls per user turn to prevent runaway loops
+- [x] **Networking**: Ktor Client (coroutines-native, replaces Retrofit)
+- [x] **DI**: Hilt (replaces manual dependency management)
+- [x] **Preferences**: DataStore (replaces SharedPreferences)
+- [x] **Serialization**: Kotlinx Serialization (for Room, Ktor, DataStore)
 
 ---
 
 ## Resources
 
-- [LiteRT-LM](https://ai.google.dev/edge/litert_lm) — Production runtime (replaces deprecated MediaPipe LLM Inference)
-- [Gemma 3n E2B/E4B on HuggingFace](https://huggingface.co/models?search=gemma-3n-e2b) — Models in `.litertlm` format
+- [MediaPipe LLM Inference](https://ai.google.dev/edge/mediapipe/solutions/generative-ai/llm_inference) — On-device Gemma 4 inference
+- [Gemma 4 E2B/E4B on HuggingFace](https://huggingface.co/models?search=gemma-4-e2b) — Models in `.task` format
+- [Silero VAD](https://github.com/silero-vad/silero-vad) — Voice activity detection (.tflite)
 - [Jetpack Compose](https://developer.android.com/compose)
+- [Hilt](https://developer.android.com/training/dependency-injection/hilt-android)
+- [Ktor Client](https://ktor.io/docs/client.html)
+- [DataStore](https://developer.android.com/topic/libraries/architecture/datastore)
 - [CameraX](https://developer.android.com/camera)
-- [flutter_gemma](https://pub.dev/packages/flutter_gemma) — Reference implementation for Android audio pipeline with Gemma 4 E2B/E4B (source on GitHub)

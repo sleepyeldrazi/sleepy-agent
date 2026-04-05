@@ -9,7 +9,7 @@ git:
 
 # Sleepy Agent
 
-Privacy-first Android AI assistant using Google Gemma 4 (E2B/E4B) for on-device inference. Features voice input with VAD, camera for visual queries, TTS output, and optional delegation to a local big model via Tailscale.
+Privacy-first Android AI assistant using Google Gemma 4 (E2B/E4B) on-device inference via MediaPipe. Features voice input with Silero VAD, camera for visual queries, native TTS output, and optional delegation to a local big model via Tailscale.
 
 ## Features
 
@@ -42,12 +42,14 @@ Privacy-first Android AI assistant using Google Gemma 4 (E2B/E4B) for on-device 
 
 ## Tech Stack
 
-- Kotlin + Jetpack Compose
-- MediaPipe LLM Inference API
-- MediaPipe Speech (VAD)
+- Kotlin + Jetpack Compose (Material 3)
+- MediaPipe LLM Inference (Gemma 4 E2B/E4B)
+- Silero VAD (voice activity detection)
 - CameraX
 - Native Android TextToSpeech
-- Retrofit (server API)
+- Ktor Client (server API)
+- Hilt (dependency injection)
+- DataStore (preferences)
 
 ## Location
 
