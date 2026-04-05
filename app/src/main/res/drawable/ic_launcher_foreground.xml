@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Background circle -->
+    <path
+        android:fillColor="#1A1A2E"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0"/>
+    
+    <!-- Robot head -->
+    <path
+        android:fillColor="#16213E"
+        android:strokeColor="#E94560"
+        android:strokeWidth="2"
+        android:pathData="M34,38h40v32h-40z"/>
+    
+    <!-- Antenna -->
+    <path
+        android:strokeColor="#E94560"
+        android:strokeWidth="2"
+        android:pathData="M54,38L54,28"/>
+    <!-- Antenna ball -->
+    <path
+        android:fillColor="#E94560"
+        android:pathData="M54,26m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0"/>
+    
+    <!-- Eyes (sleepy/closed) -->
+    <path
+        android:strokeColor="#E94560"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M42,52h6"/>
+    <path
+        android:strokeColor="#E94560"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M60,52h6"/>
+    
+    <!-- Mouth -->
+    <path
+        android:strokeColor="#533483"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M46,62c2.5,2 7.5,2 10,0"/>
+    
+    <!-- Zzz -->
+    <path
+        android:fillColor="#E94560"
+        android:pathData="M74,32h4l-4,5h4"
+        android:strokeColor="#E94560"
+        android:strokeWidth="1.5"/>
+</vector>
