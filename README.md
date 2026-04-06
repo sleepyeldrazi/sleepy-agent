@@ -62,14 +62,14 @@ A fully local AI assistant for Android powered by Google's Gemma 4 models via Li
 
 ## Building
 
-See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed build instructions and how to configure your own SearXNG server.
+See [DEVELOPMENT.md](docs/DEVELOPMENT.md) for detailed build instructions.
 
 Quick build:
 ```bash
 ./gradlew :app:assembleDebug
 ```
 
-The release APK is ~50MB (arm64-v8a only).
+The debug APK is ~50MB (arm64-v8a only).  
 
 ## Web Search Setup
 
