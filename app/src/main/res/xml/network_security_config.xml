@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext traffic to home server -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">sleepy-think</domain>
+        <domain includeSubdomains="true">sleepy-wsl</domain>
+        <domain includeSubdomains="true">192.168.1.100</domain>
+        <domain includeSubdomains="true">10.0.0.2</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+    </domain-config>
+    
+    <!-- Allow cleartext for search server too (common for local SearXNG) -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">searx</domain>
+        <domain includeSubdomains="true">search</domain>
+    </domain-config>
+    
+    <!-- Default: require HTTPS for everything else -->
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
